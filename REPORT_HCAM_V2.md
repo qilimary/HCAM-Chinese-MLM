@@ -19,6 +19,8 @@ V2 使用 **23K 中英混合词表**，中文保持“一字一 token”，Latin
 
 训练目标以动态多粒度 MLM 为主，辅以轻量 Self-Critic RTD；优化器采用 Muon + AdamW，并配合 AdaGC。最终固定验证集 MLM Top-1 达到 **70.14%**；在外部语言学基准 **SLING-38K** 上达到 **75.579%（28,720 / 38,000）**，比 V1 的 64.924% 提高 **10.655 个百分点**。
 
+此外，即使在最后的训练末尾阶段，模型仍然在验证集表现上连续全方位提升，说明模型还并未达到理论最优状态。这说明模型仍有不少进步空间，如未来继续预训练，模型的性能与成绩还能继续提升。
+
 **English summary.** HCAM V2 is a 121.08M-parameter Chinese bidirectional masked language model with 8 local blocks and 3 global GQA layers. It was trained on a 3.5B-token prepared mixture for about 3.4 passes (~11.9B token exposures, ~49.7K optimizer updates), using dynamic multi-granularity MLM plus a lightweight Self-Critic RTD objective. Final SLING-38K accuracy is 75.579%, a +10.655 pp gain over HCAM V1.
 
 ---
