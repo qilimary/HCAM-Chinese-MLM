@@ -1,29 +1,120 @@
-# HCAM 100M 中文掩码语言模型 / Chinese Masked Language Model
+# HCAM 中文掩码语言模型 / HCAM Chinese Masked Language Models
 
 **HCAM = Hybrid Convolution-Attention Model（混合卷积-注意力模型）**
 
-HCAM 100M 是一个约 **102.78M 参数**的中文双向掩码语言模型。它使用 **7 个双向门控扩张卷积层 + 3 个双向 Gated-GQA 全局注意力层**，以字符级 18K 词表建模中文文本，并通过 SentencePiece 边界指导多粒度 MLM 掩码。
+这个仓库现在作为 **HCAM 中文 MLM 系列**的项目主页。
 
-HCAM 100M is a **102.78M-parameter** bidirectional Chinese masked language model. It combines **7 bidirectional gated dilated-convolution layers with 3 bidirectional Gated-GQA global-attention layers**, uses a true 18K character vocabulary, and employs SentencePiece boundaries only as a guide for multi-granularity MLM masking.
+- **HCAM V1 / 100M**：约 **102.78M** 参数，已经开源代码、FP32 权重、训练方法与评测。
+- **HCAM V2 / 121M**：约 **121.08M** 参数，完成第二代预训练与外部基准评测；**目前仅公开技术报告与结果，不公开权重和完整训练代码**。
 
-> 本仓库的主体是预训练基座。Dededi“的/地/得”微调仅作为一个小型下游实验。  
-> The pretrained base is the main release. The Dededi 的/地/得 correction fine-tune is included only as a small downstream case study.
+> V1 仍然是本仓库当前可下载、可复现、可直接运行的公开模型，也是本仓库原始技术报告 [`REPORT_HCAM.md`](REPORT_HCAM.md) 的主体。  
+> V2 是建立在 V1 已验证架构与训练经验之上的第二代迭代版本；整体语言能力进一步提高，同时在字符级恢复与局部搭配任务上继续表现出 HCAM 的优势倾向，并单独记录在 [`REPORT_HCAM_V2.md`](REPORT_HCAM_V2.md) 中。V2 当前只公开技术报告与结果。
+
+## 版本概览 / Versions
+
+| 项目 | HCAM V1 | HCAM V2 |
+|---|---:|---:|
+| Parameters | 102.78M | **121.08M** |
+| Layers | 10 | **11** |
+| Local / Global | 7 Local + 3 GQA | **8 Local + 3 GQA** |
+| Hidden size | 1056 | **1088** |
+| Attention layers | 3 / 7 / 10 | **3 / 7 / 11** |
+| Query / KV heads | 16 / 4 | **16 / 4** |
+| Vocabulary | 18K character vocab | **23K mixed vocab** |
+| Chinese tokenization | character | **one Chinese character = one token** |
+| Latin | character-heavy | **≤2.8K Latin BPE, selective case retention** |
+| Context | 600 | **624** |
+| Dropout | 0.10 | **0.05** |
+| Main objective | multi-granularity MLM | **dynamic multi-granularity MLM + light Self-Critic RTD** |
+| Prepared train tokens | ~1.638B chars | **3.5B tokens** |
+| Total passes | 2 | **3.4** |
+| SLING-38K | 64.924% | **75.579%** |
+| Reflexive-560 | **67.857%** | 66.071% |
+| Release status | **code + weights** | **report only** |
+
+文档定位：
+
+- **[`REPORT_HCAM.md`](REPORT_HCAM.md)** — 原始完整技术报告，主体对应 **HCAM V1 / 100M**；
+- **[`REPORT_HCAM_V2.md`](REPORT_HCAM_V2.md)** — 第二代补充技术报告，记录 **HCAM V2 / 121M** 的结构、训练摘要与最终结果。
+
+---
+
+## HCAM V2：第二代结果摘要 / V2 summary
+
+HCAM V2 延续“多数局部层 + 少数全局注意力层”的基本方向，但扩大到 **121.08M** 参数，并加入动态局部卷积、headwise attention gate、rank-16 H-gate、23K 中英混合词表、3.5B 数据、3.4 遍训练课程以及轻量 Self-Critic RTD。
+
+最终第 34 个 virtual epoch：
+
+| Evaluation | Result |
+|---|---:|
+| Fixed validation MLM loss | **1.3717** |
+| Fixed validation Top-1 | **70.14%** |
+| Hard 25% masking Top-1 | **60.90%** |
+| Hard 25% masking Top-5 | **77.50%** |
+| Character-mask Top-1 | **78.38%** |
+| Whole-piece Top-1 | **63.92%** |
+| Multi-span Top-1 | **50.56%** |
+| RTD balanced accuracy | **83.96%** |
+| Final RTD weight | **0.12** |
+
+外部语言学评测：
+
+| Benchmark | V1 | V2 | Δ |
+|---|---:|---:|---:|
+| SLING-38K | 64.924% | **75.579%** | **+10.655 pp** |
+| Reflexive-560 | **67.857%** | 66.071% | -1.786 pp |
+
+SLING-38K 中，V2 正确 **28,720 / 38,000**，比 V1 多答对 **4,049** 对。 这说明 V2 在 V1 已经可用的基础上取得了明显的整体能力提升；不过提升并非所有子基准都完全一致。V2 的提升并不完全均匀：WhFronting、DefinitenessEffect、Classifier-Noun 等现象很强，而 RelativeClause 仍然是明显短板。Reflexive-560 中，V2 的 Natural 子集高于 Auto 子集，显示第二代在自然句上的表现提升并没有同步转化为所有人工句法模板上的优势。
+
+![SLING-38K score comparison](sling_38k_leaderboard.png)
+
+> SLING-38K 参考对照图：用于直观展示 HCAM V1 / V2 在同一 38K 评测口径中的分数位置。
+
+
+### V2 下游字符纠错与量化 / Character correction & quantization
+
+在预训练完成后，V2 又从基座重新微调了一个联合字符纠错模型，目标为 **的 / 地 / 得 / 做 / 作**。该任务仍采用字符级 masked prediction：待判断位置被遮蔽，模型直接根据双向上下文预测正确字符。
+
+在微调前，V2 基座在 500 句、1,082 个目标位置的五字测试上已经达到 **88.262% Accuracy / 85.841% Macro-F1**。微调后的最终 FP32 模型在内部验证口径上达到：
+
+| Model / strategy | Accuracy | Macro-F1 | Macro-F0.5 |
+|---|---:|---:|---:|
+| V2 base, all-mask | 88.262% | 85.841% | 86.373% |
+| V2 fine-tuned FP32, all | **98.969%** | **96.730%** | **97.035%** |
+| V2 fine-tuned FP32, single | **99.062%** | **96.791%** | — |
+
+在另一组 FreshNatural“的 / 地 / 得”自然文本测试（4,980 个目标位置）中，V2 微调模型达到 **99.438% Accuracy / 99.470% Macro-F1**，高于旧版 HCAM 模型的 **99.096% / 99.199%**。
+
+移动端部署最终采用 **ExecuTorch `.pte` + XNNPACK Dynamic INT8 per-channel**。量化模型约 **117.24 MiB**；对应 FP32 导出约 **462.66 MiB**，体积缩小约 **3.95×**。在 2,000 句 / 6,501 个目标位置的完整 PTE Runtime 等价性验证中：
+
+- Accuracy：**99.000%**
+- Macro-F1：**96.823%**
+- Macro-F0.5：**97.168%**
+
+没有观察到可测的量化精度损失。另有约 **116.97 MiB** 的 ONNX Runtime dynamic INT8 版本，供 Windows / CPU 部署使用。
+
+这些下游结果也说明，**SLING 总分并不能代表 HCAM 在所有任务上的相对位置**。HCAM 从设计上保持中文字符级 tokenization，并让多数层承担局部建模；在字符恢复、局部搭配、近邻语法和字形级纠错这类任务上，它可能比综合语言学榜单所显示的排名更有竞争力。V1 已经在“的 / 地 / 得”任务上表现出这一特征，V2 又在自然字符纠错测试上进一步超过 V1。
+
+V2 暂不提供权重与完整训练代码；本仓库现有 `hcam.py`、`train_pretrain.py`、Release 权重仍对应 V1。
+
+---
+
+# HCAM V1 / 100M — Open-source release
+
+HCAM V1 是一个约 **102.78M 参数**的中文双向掩码语言模型。它使用 **7 个双向门控扩张卷积层 + 3 个双向 Gated-GQA 全局注意力层**，以字符级 18K 词表建模中文文本，并通过 SentencePiece 边界指导多粒度 MLM 掩码。
+
+> 本仓库可下载的模型权重和可运行训练/推理代码均为 V1。  
+> Dededi“的/地/得”微调仅作为一个小型下游实验。
 
 ## 项目缘起 / Motivation
 
-HCAM 100M 最初并不是为了超越某个现有模型而训练的。我不是科班出身，但我一直对语言模型有浓厚的兴趣。这个项目来自我长期对语言模型架构、从零训练流程，以及卷积与注意力混合结构的兴趣。之前我训练过许多模型，也积累了不少实际训练经验。在训练 HCAM 100M 之前，我设计的这条架构思路已经分别在 **16M、30M、55M 和 100M** 规模的自回归语言模型上进行过实验。随着参数量和数据量大致同比例增长，这些模型均能够正常收敛，也没有观察到相对于 Transformer 设计明确、稳定的性能劣势。
+HCAM 最初并不是为了超越某个现有模型而训练的。这个项目来自对语言模型架构、从零训练流程，以及卷积与注意力混合结构的长期兴趣。在 V1 之前，同一条架构思路已经分别在 **16M、30M、55M 和 100M** 规模的自回归语言模型上进行过实验。
 
-在这些自回归实验之后，我开始关注这个混合卷积-注意力结构在**双向掩码语言建模**中的表现，于是在 AI 的帮助下重新设计了预训练目标、动态多粒度掩码策略、字符级 tokenizer 与训练流程，并最终从零训练出 HCAM 100M。
+在这些自回归实验之后，项目进一步转向双向掩码语言建模，并重新设计了预训练目标、动态多粒度掩码策略、字符级 tokenizer 与训练流程，最终得到 HCAM V1。V1 后续在中文“的 / 地 / 得”纠错任务上的微调结果推动了模型压缩、量化和 Android 端部署。
 
-项目一开始只是出于个人兴趣和想法，并没有预设必须达到怎样的下游成绩，甚至一开始我对该模型的能力是偏悲观的，也没有计划把模型部署到手机端。后续在中文“的 / 地 / 得”纠错任务上的微调结果超出了最初预期，才进一步推动了模型压缩、量化以及 Android 端部署。也正因为这条从架构实验、预训练、下游微调一直走到真实应用的路径，我决定将 HCAM 100M 的预训练基座、架构实现、训练方法与实验结果公开。
+V2 则是在 V1 之后继续扩大数据、训练预算与训练目标设计的第二代实验版本。
 
-HCAM 100M was not originally trained with the goal of outperforming any particular existing model. I do not come from a formal computer science or machine learning background, but I have long had a strong interest in language models. This project grew out of my sustained interest in language-model architectures, training models from scratch, and hybrid convolution-attention designs. Before training HCAM 100M, I had already trained a number of models and accumulated practical experience. The same architectural idea behind HCAM had previously been explored in autoregressive language models at 16M, 30M, 55M, and 100M parameter scales. As model size and training data were increased roughly proportionally, all of these models converged normally, and I did not observe a clear and consistent performance disadvantage relative to Transformer-based designs.
-
-After those autoregressive experiments, I became interested in how this hybrid convolution-attention architecture would behave under bidirectional masked language modeling. With the help of AI, I redesigned the pretraining objective, dynamic multi-granularity masking strategy, character-level tokenizer, and training pipeline, and eventually trained HCAM 100M from scratch.
-
-The project initially began purely out of personal interest and curiosity. I did not set a predefined downstream performance target, and in fact I was somewhat pessimistic about the model's capabilities at first. I also had no original plan to deploy it on a mobile device. Later, its fine-tuning results on Chinese 的/地/得 correction exceeded my initial expectations, which led to further work on model compression, quantization, and Android deployment. It was this progression—from architecture experiments, to pretraining, to downstream fine-tuning, and eventually to a real-world application—that ultimately led me to release the HCAM 100M pretrained base model, architecture implementation, training method, and experimental results publicly.
-
-## 核心规格 / Key specifications
+## V1 核心规格 / V1 key specifications
 
 | 项目 / Item | 配置 / Value |
 |---|---:|
@@ -62,28 +153,28 @@ Token Embedding + learned Mask Embedding
  Tied 18K Character LM Head
 ```
 
-## 预训练 / Pretraining
+## V1 预训练 / V1 pretraining
 
-- 有效不重复训练语料：约 **1.638B 字符** / ~**1.638B effective non-duplicate characters**
-- 训练调度：**10 个 virtual epochs**；前 5 个合计完成第一遍完整语料，后 5 个使用半窗口 offset 并合计完成第二遍完整语料
-- 总训练暴露量：约 **3.276B character-token exposures**（约等于 1.638B × 2；virtual epoch 是调度/分段单位，不等于一次完整数据遍历）
-- 固定验证集：**1M** character tokens
+- 有效不重复训练语料：约 **1.638B 字符**
+- 训练调度：10 个 virtual epochs，合计两遍完整语料
+- 总训练暴露量：约 **3.276B character-token exposures**
+- 固定验证集：1M character tokens
 - 有效全局 batch：384
 - Peak LR：`7e-4`
 - Weight decay：`0.08`
 - 总遮蔽率：30% → 15%
 - 被选位置替换：80% learned mask embedding / 10% random char / 10% unchanged
 
-训练数据目标比例 / target mixture:
+训练数据目标比例：
 
 - Ultra-FineWeb Chinese: ≤50%
 - SkyPile-150B Chinese: 32%
 - Wikipedia: 14%
 - Custom/user corpus: 4%
 
-详细来源与许可风险见 [`DATA_LICENSES.md`](DATA_LICENSES.md)。Raw corpora are **not redistributed** by this repository.
+详细来源与许可风险见 [`DATA_LICENSES.md`](DATA_LICENSES.md)。
 
-## 预训练结果 / Pretraining results
+## V1 预训练结果 / V1 pretraining results
 
 | Evaluation | MLM Loss | Masked PPL | Top-1 | Top-5 |
 |---|---:|---:|---:|---:|
@@ -91,12 +182,9 @@ Token Embedding + learned Mask Embedding
 | Standard mixed masking benchmark | 2.0044 | 7.42 | 60.58% | 75.50% |
 | Whole-piece/span stress benchmark | 3.0540 | 21.20 | 43.87% | 59.49% |
 
-这里的 PPL 是 `exp(masked cross-entropy)`，不能直接与不同 tokenizer / 不同 MLM 定义的模型横向比较。  
-The reported PPL is `exp(masked cross-entropy)` and should not be compared directly across incompatible tokenizers or masking setups.
+这里的 PPL 是 `exp(masked cross-entropy)`，不能直接与不同 tokenizer / 不同 MLM 定义的模型横向比较。
 
 ## 真实文本与长距离依赖基准 / Real-text & long-range benchmark
-
-为了进一步观察预训练基座在真实文本中的 MLM、稀有跨度恢复以及远距离实体利用能力，我额外使用同一套测试对 HCAM-100M、Chinese-RoBERTa-WWM-ext 和 RoFormerV2-Char-Base 进行了比较。
 
 | Model | Params | REAL-MLM Top-1 | REAL-MLM Top-5 | Rare char Top-1 | Rare whole-span |
 |---|---:|---:|---:|---:|---:|
@@ -112,34 +200,13 @@ REAL-LONG 四个距离桶（64–469 字）简单平均：
 | Chinese-RoBERTa-WWM-ext | 58.54% | 22.87% | 45.63% | 96.25% | +2.296 |
 | RoFormerV2-Char-Base | 60.09% | 20.55% | 45.00% | 95.63% | +2.574 |
 
-HCAM 的绝对恢复率仍有提升空间，但它的远距离 Cue 帮助率与 `ΔlogP` 已与两种成熟基线处于相近量级。在最远的 **384–469 字**距离桶中，删除远端 Cue 会使 HCAM Top-1 从 **42.45%** 降到 **10.38%**，平均 `ΔlogP=+2.441`。这说明三层全局 Gated-GQA 已经能够让数百字之外的信息稳定影响目标位置；当前结果并不支持“多数层换成卷积后，模型失去了长距离上下文能力”这一判断。
+在最远的 **384–469 字**距离桶中，删除远端 Cue 会使 HCAM V1 Top-1 从 **42.45%** 降到 **10.38%**，平均 `ΔlogP=+2.441`。这表明三层全局 Gated-GQA 已经能够让数百字之外的信息稳定影响目标位置。
 
-这里需要特别说明：这不是同数据、同训练预算的架构消融。HCAM 从零训练所使用的**有效不重复语料规模约为 1.638B 字符**；训练被划分为 10 个 virtual epochs，但它们只是两遍完整语料中的分段调度单位：前 5 个合计完成第一遍，后 5 个使用半窗口 offset 并合计完成第二遍，因此总训练暴露量约为 **3.276B character-token exposures**。HFL 官方文档记录 Chinese-RoBERTa-WWM-ext 所用 EXT 语料总词数约 **5.4B**；RoFormerV2 官方文档记录约 **280GB 无监督数据**，随后还有约 **20GB、77 个标注数据集构成的 92 个任务**进行有监督多任务训练。字符、词和 GB 不能直接一一换算，因此这里不计算一个虚假的“数据倍数”，但公开训练资源规模明显并不匹配。
+完整测试定义、基线健康检查与各距离桶结果见 [`REAL_BENCHMARK.md`](REAL_BENCHMARK.md)。
 
-**在明显更小的训练数据与个人训练预算下，HCAM 仍在普通真实文本 MLM 和长距离上下文利用上达到了相对于这些成熟基线并不弱、部分指标处于同一量级的能力。** 例如 REAL-MLM Top-5 为 **88.38%**，与 Chinese-RoBERTa-WWM-ext 的 **88.50%** 仅差 0.12 个百分点；REAL-LONG Cue 帮助率为 **95.00%**，也与两种成熟基线接近。
+## 小型下游实验：的 / 地 / 得
 
-Rare Span 和最终精确恢复率仍有差距，但这类能力高度依赖长尾词、专名和低频组合的语料覆盖，因此其中相当一部分差距很可能来自训练数据规模、覆盖度与训练预算，而不能直接归因于混合卷积-注意力架构。
-
-结合此前的自回归缩放实验、当前 MLM 结果与 REAL-LONG Cue 消融，**目前未发现 HCAM 相比纯 Transformer 存在可明确归因于混合卷积-注意力架构本身的系统性性能差异或明显精度损失。** 换句话说，现有结果没有显示“将大部分注意力层替换为门控扩张卷积”本身造成了明显能力退化，甚至可能接近或超越现代化的Transformer 。但严格区分架构因素仍需要未来进行同数据、同参数量、同训练步数的控制实验。
-
-In the additional real-text benchmark, HCAM reaches **68.50% Top-1 / 88.38% Top-5** on REAL-MLM. Its Top-5 is only **0.12 percentage points** below Chinese-RoBERTa-WWM-ext (88.50%).
-
-On REAL-LONG, HCAM achieves a **95.00% cue-help rate** and mean **ΔlogP +2.467**, comparable in scale to Chinese-RoBERTa-WWM-ext (96.25%, +2.296) and RoFormerV2-Char-Base (95.63%, +2.574). In the 384–469-character bucket, removing the distant cue reduces HCAM Top-1 from **42.45% to 10.38%**, providing direct evidence that distant context is genuinely used.
-
-These are not matched-data architectural ablations. HCAM was trained from scratch on about **1.638B effective non-duplicate characters**. Training is divided into **10 virtual epochs**, but these are scheduling segments rather than ten full corpus passes: virtual epochs 1–5 together cover the first full pass, while 6–10 use a half-window offset and together cover the second full pass, for about **3.276B character-token exposures** in total. HFL documents roughly **5.4B words** for its EXT corpus, while the RoFormerV2 authors report about **280GB of unsupervised data** followed by roughly **20GB of supervised multi-task data**. The units are not directly interchangeable, and the published training resources remain clearly unmatched.
-
-**Despite substantially smaller training data and an individual-scale compute budget, HCAM still achieves real-text MLM and long-range context utilization that are not weak relative to these mature baselines, with several metrics in the same range.** The remaining gaps—especially rare-span recovery—are strongly confounded by long-tail coverage and training scale.
-
-Across the existing autoregressive scaling experiments, MLM evaluation, and REAL-LONG cue ablation, **no systematic performance degradation has yet been identified that can be clearly attributed to the hybrid convolution-attention architecture itself**. A strict architectural conclusion would require a future matched-data, matched-parameter, matched-step ablation.
-
-完整测试定义、基线健康检查与各距离桶结果见 [`REAL_BENCHMARK.md`](REAL_BENCHMARK.md)。  
-Full definitions, baseline health checks, and per-distance results are in [`REAL_BENCHMARK.md`](REAL_BENCHMARK.md).
-
-## 小型下游实验：的 / 地 / 得 / Small downstream case study
-
-第一版 HCAM E3-EMA 微调把每一个待判断的“的/地/得”位置替换为预训练 learned mask embedding，再基于双向上下文恢复类别。部署时只需要来自 tied embedding 的三行权重（的=138、地=164、得=243），无需输出完整 18K logits。
-
-The first HCAM E3-EMA fine-tune masks every target 的/地/得 position with the pretrained learned mask embedding and predicts the correct class from bidirectional context. Deployment can use only the three tied-embedding rows for 的=138, 地=164, 得=243 instead of the full 18K vocabulary head.
+第一版 HCAM E3-EMA 微调把每一个待判断的“的/地/得”位置替换为预训练 learned mask embedding，再基于双向上下文恢复类别。
 
 | Evaluation | HCAM E3-EMA | RoFormerV2 E3-EMA |
 |---|---:|---:|
@@ -149,38 +216,24 @@ The first HCAM E3-EMA fine-tune masks every target 的/地/得 position with the
 | Natural DEV3 — Macro-F0.5 | **95.882%** | 84.774% |
 | Natural DEV3 — clean false-action rate | **0.988%** | 3.548% |
 
-这些结果仅代表该纠错任务，不代表 HCAM 在所有中文任务上优于 RoFormerV2。Natural DEV3 来自 DRCD-dev 与 Wikipedia 各 600 条，目标分布为 的 2268 / 地 333 / 得 133。
+这些结果只代表该纠错任务。Natural DEV3 来自 DRCD-dev 与 Wikipedia 各 600 条，目标分布为 的 2268 / 地 333 / 得 133。
 
-These results are task-specific and are **not** a claim that HCAM is universally superior to RoFormerV2. Natural DEV3 contains 600 snippets from DRCD-dev and 600 from Wikipedia, with target counts 的 2268 / 地 333 / 得 133.
+## 实际应用示例 / Real-world application demo
 
-## 实际应用示例 / Real-world Application Demo
-
-HCAM 100M 的预训练基座已经被进一步微调用于中文“的 / 地 / 得”纠错，并集成到作者的 Android 应用中。
-
-The HCAM 100M pretrained base has also been fine-tuned for Chinese 的/地/得 correction and integrated into the author's Android application.
-
-下图为一次真实运行示例。专业模式由 HCAM 下游微调模型负责“的 / 地 / 得”判断。此次示例中，模型在约 1,187 字文本中给出了 3 条纠错建议，并显示对应置信度。截图中的 Android 端实际运行的是**量化后的 ExecuTorch/XNNPACK 部署版本**，并非 392 MiB 的 FP32 预训练基座；部署模型采用 dynamic INT8 per-channel 主干量化，并保留 FP32 三分类输出头。  
-（应用程序为自用，非公开与商业化。在一万字左右的真实小说上推理速度约 5 秒。）
-
-The screenshot below shows a real application run. In Professional (HCAM) mode, the downstream HCAM model performs 的/地/得 classification and provides confidence scores for its correction suggestions. The Android app shown here runs a **quantized ExecuTorch/XNNPACK deployment build**, not the 392 MiB FP32 pretrained base; the deployment uses dynamic INT8 per-channel quantization for the main quantized operators while keeping the final three-class head in FP32.
+HCAM V1 的预训练基座已经被进一步微调用于中文“的 / 地 / 得”纠错，并集成到作者的 Android 应用中。
 
 ![HCAM downstream application demo](app_demo.jpg)
 
-> **说明 / Note:**  
-> 本仓库的主要开源对象仍是 **HCAM 100M 预训练基座**。截图展示的是一个下游微调和移动端部署案例，并非独立基准测试。界面所示耗时取自一次实际设备运行，不代表所有设备的固定推理速度。  
->  
-> The primary release of this repository remains the **HCAM 100M pretrained base model**. The screenshot is a downstream fine-tuning and mobile deployment example, not a standalone benchmark. The displayed latency is from one real-device run and should not be interpreted as a fixed speed across devices.
+截图中的 Android 端运行的是量化后的 ExecuTorch/XNNPACK 部署版本，而不是 FP32 预训练基座。
 
-更多细节见 [`REPORT_HCAM.md`](REPORT_HCAM.md)。
+更多 V1 细节见 [`REPORT_HCAM.md`](REPORT_HCAM.md)。
 
-## 下载权重 / Download weights
+## 下载 V1 权重 / Download V1 weights
 
-正式 FP32 基座约 **392 MiB**，不放入普通 Git 历史。请从仓库 **Releases** 下载：
+正式 FP32 基座约 **392 MiB**，请从仓库 **Releases** 下载：
 
 - `hcam_100m_base_fp32.pt`
 - `tokenizer.model`
-
-The FP32 base checkpoint is about **392 MiB** and is distributed through **GitHub Releases**, not ordinary Git history.
 
 ## 快速使用 / Quick start
 
@@ -200,7 +253,6 @@ model, meta, _ = load_hcam(
 
 text = "温室里的植物正在安静地生长。"
 ids = torch.tensor([tok.encode(text)], device=next(model.parameters()).device)
-# mask character position 3 in the original text; +1 accounts for BOS
 positions = torch.tensor([[4]], device=ids.device)
 logits = masked_logits(model, ids, positions)
 print(tok.pieces[int(logits[0, 0].argmax())])
@@ -214,35 +266,38 @@ python benchmark.py --model hcam_100m_base_fp32.pt --tokenizer tokenizer.model
 
 ## 仓库文件 / Repository files
 
-- `README.md` — 项目首页 / project overview
-- `REPORT_HCAM.md` — 中英双语完整报告 / bilingual technical report
-- `REAL_BENCHMARK.md` — 真实文本 MLM、稀有跨度与长距离依赖对比 / real-text MLM, rare-span and long-range benchmark
-- `hcam.py` — 架构、tokenizer、加载函数 / architecture + tokenizer + loader
-- `benchmark.py` — 最小 MLM 测试 / minimal MLM benchmark
+- `README.md` — 项目首页与版本概览
+- `REPORT_HCAM.md` — V1 技术报告
+- `REPORT_HCAM_V2.md` — V2 技术报告、训练摘要与最终评测
+- `sling_38k_leaderboard.png` — SLING-38K 分数对照图
+- `REAL_BENCHMARK.md` — V1 真实文本 MLM、稀有跨度与长距离依赖对比
+- `hcam.py` — V1 架构、tokenizer、加载函数
+- `train_pretrain.py` — V1 预训练代码
+- `benchmark.py` — V1 最小 MLM 测试
 - `requirements.txt` — Python dependencies
-- `LICENSE` — 代码 Apache-2.0 / code license
-- `NOTICE` — 代码署名通知 / attribution notice
-- `MODEL_LICENSE.md` — 模型权重 CC BY 4.0 / model-weight license
-- `DATA_LICENSES.md` — 数据来源与上游许可说明 / data provenance and upstream terms
+- `LICENSE` — 代码 Apache-2.0
+- `MODEL_LICENSE.md` — 已发布 V1 模型权重许可
+- `DATA_LICENSES.md` — V1 数据来源与上游许可说明
 
-## 许可与署名 / License and attribution
+## 许可与版本状态 / License & release status
 
-- **Code:** Apache License 2.0 + `NOTICE`
-- **Model weights:** CC BY 4.0, attribution required, to the extent of rights the author can grant
-- **Training data:** governed by their own upstream terms; see `DATA_LICENSES.md`
+- **V1 code:** Apache License 2.0 + `NOTICE`
+- **V1 model weights:** CC BY 4.0, attribution required, to the extent of rights the author can grant
+- **V1 training data:** governed by their own upstream terms; see `DATA_LICENSES.md`
+- **V2:** 当前仅公开技术报告与评测结果；未发布权重和完整训练代码
 
-建议署名 / Suggested attribution:
+建议署名：
 
-> **HCAM 100M by qilimary** — https://github.com/qilimary/HCAM-100M-Chinese-MLM
+> **HCAM by qilimary**
 
 ## 已知限制 / Known limitations
 
-- 这是双向 MLM 编码器，不是自回归聊天模型。 / This is a bidirectional MLM encoder, not an autoregressive chat model.
-- 上下文长度固定为 600。 / Context length is fixed at 600.
-- 极罕见字符可能回退到 `<unk>`。 / Very rare characters may fall back to `<unk>`.
-- 模型只有 3 层使用全局注意力，但 REAL-LONG 已确认 **400+ 字远端 Cue 可以稳定影响预测**；更复杂的多轮全局交互是否受到限制，仍需要同数据控制实验进一步验证。 / Only 3 layers use global attention, but REAL-LONG confirms reliable use of **400+ character distant cues**; whether more complex multi-step global interaction is limited still requires matched-data evaluation.
-- 稀有词与连续跨度恢复仍弱于成熟大语料基线；由于训练资源显著不匹配，目前不能将这一差距直接归因于架构。 / Rare-word and contiguous-span recovery remains below mature large-corpus baselines; because training resources are substantially unmatched, this gap cannot currently be attributed directly to architecture.
-- 下游“的/地/得”实验不是通用中文基准。 / The 的/地/得 case study is not a general Chinese benchmark.
+- HCAM 是双向 MLM 编码器，不是自回归聊天模型。
+- V1 上下文长度为 600；V2 为 624。
+- V1 与 V2 都只有 3 层全局注意力，复杂的多阶段全局推理仍值得进一步评测。
+- V2 的多字符同时恢复能力仍明显弱于单字符恢复。
+- 不同 tokenizer、mask 课程和训练数据下的 MLM loss / PPL 不应直接横向比较。
+- V2 当前不是公开模型发布，只是项目的第二代实验与技术报告。
 
 ## Author
 
